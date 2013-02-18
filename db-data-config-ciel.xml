@@ -1,0 +1,182 @@
+<dataConfig>    			
+	<dataSource name="ciel" type="JdbcDataSource" batchSize="-1" driver="com.mysql.jdbc.Driver" url="jdbc:mysql://localhost/omrs19_ciel" user="omrs19_ciel" password="OpenCL_8"/>		
+    <document>
+        <entity name="concept_ciel"  datasource="ciel"
+			query="
+				/* unique records 49271 */
+				select
+				/* id - this field should only contain the concept ID */
+				c.concept_id as id
+				/* full_id - this field can contain the dictionary code and concept id (what you do in the current id field) - switch the order and separate with an underscore (e.g. CIEL_104) */
+				,CONCAT('CIEL_',CAST(c.concept_id AS char)) as full_id				
+				,c.uuid as uuid
+				/* full_uuid - same as fullid, except use the uuid - (e.g. PIH_104AAAAAAAAAA...) */
+				,CONCAT('CIEL_',c.uuid)  as full_uuid
+				/* pname - this should contain the preferred name only (the same as the current name field) */
+				,cn.name as pname
+				/* name - this should contain the entire list of synonyms (not just the preferred name); add in a separator that can be used to reliably parse the field; this is so that when a user searches against a name, the normal behavior will be to search all the names (e.g. 'name:malaria') */
+				,csy.name
+				/* description - this should contain all the descriptions; add a separator that can be used to reliably parse the field */
+				,cdesc.description as description
+				,c.date_created as timestamp 
+				/* dict - rename the source field to dict, since source is used to refer to map sources and might confuse people */
+				,'CIEL' as dict				
+				,CASE WHEN c.retired=1 THEN 'retired' ELSE '' END as retired				
+				,cc.name as class				
+				,cd.name datatype
+				/* questions - this should contain the preferred name and concept ID of all questions for this concept; add a separator that can be used to reliably parse the field (same as above) */
+				,cqs.question
+				/* answers - this should contain the preferred name and concept ID of all answers to this concept; add a separator that can be used to reliably parse the field (same as above) */
+				,cas.answer							
+			    ,AMPATH 
+				,`HL-7 CVX`
+				,`HL7 2.x Route of Administration`
+				,`ICD-10-WHO`				
+				,`ICD-10-WHO 2nd`
+				,`ICD-10-WHO NP`
+				,`ICD-10-WHO NP2`
+				,LOINC
+				,`MVP Amazon Server 174`
+				,`org.openmrs.module.mdrtb`
+			     ,PIH 
+				,`PIH Malawi`
+				,RxNORM
+				,`RxNORM Comb`
+				,`SNOMED CT`
+				,`SNOMED MVP`
+				,`SNOMED NP`
+				,`SNOMED US`
+				,`ICPC-2`
+				, local
+				,`MVP/CIEL at PIH`
+				,`Rwanda HMIS Report 2012 01 20`
+				,`ZL/PIH installation in Haiti`				
+				, hi_absolute
+				, hi_critical
+				, hi_normal
+				, low_absolute
+				, low_critical
+				, low_normal
+				, units
+				, precise
+				,c.is_set  as is_set
+				,set_parent
+				,set_children
+				,set_sibling
+				
+				from omrs19_ciel.concept c
+
+				left join omrs19_ciel.concept_class cc
+				on c.class_id=cc.concept_class_id
+
+				left join omrs19_ciel.concept_name cn
+				on c.concept_id = cn.concept_id
+
+				join	
+				(select c_d.concept_id, group_concat(cn_d.name SEPARATOR ' | ') as name from omrs19_ciel.concept c_d
+					left join omrs19_ciel.concept_name cn_d
+					on cn_d.concept_id = c_d.concept_id
+					group by c_d.concept_id
+					) as csy
+				on c.concept_id=csy.concept_id
+
+				left join omrs19_ciel.concept_datatype cd
+				on c.datatype_id = cd.concept_datatype_id
+
+				left join omrs19_ciel.concept_description cdesc
+				on c.concept_id = cdesc.concept_id
+
+				left join
+					(SELECT c.concept_id,ca.answer_concept
+						, group_concat(CONCAT(CAST(ca.concept_id AS CHAR),' : '),cn.name  SEPARATOR ' | ') as question
+						FROM omrs19_ciel.concept c
+						left join omrs19_ciel.concept_answer ca
+						on c.concept_id = ca.answer_concept
+						left join omrs19_ciel.concept_name cn
+						on cn.concept_id = ca.concept_id
+						where cn.locale='en' and cn.concept_name_type='FULLY_SPECIFIED'
+						group by c.concept_id
+						) as cqs
+				on c.concept_id=cqs.concept_id
+				
+				left join				
+				(SELECT c_s.concept_id,ca_s.answer_concept, group_concat(CONCAT(CAST(ca_s.answer_concept AS CHAR),' : ')
+					, cn_s.name SEPARATOR ' | ') as answer
+					FROM omrs19_ciel.concept c_s
+					join omrs19_ciel.concept_answer ca_s
+					on c_s.concept_id = ca_s.concept_id
+					join omrs19_ciel.concept_name cn_s
+					on cn_s.concept_id = ca_s.answer_concept
+					where cn_s.locale='en' and cn_s.concept_name_type='FULLY_SPECIFIED'
+					group by c_s.concept_id
+					) as cas
+				on c.concept_id=cas.concept_id
+				
+				left join mcl.mcl_mapsource_index  mcli
+				on c.concept_id=mcli.concept_id
+
+				left join omrs19_ciel.concept_numeric cnu
+				on c.concept_id = cnu.concept_id
+
+				/* set Children */
+				left join
+						(SELECT cs.concept_set, group_concat(CONCAT(CAST(cs.concept_id AS CHAR),' : ' ),cn.name separator ' | ' )
+						as set_children
+						FROM omrs19_ciel.concept_set cs
+						left join omrs19_ciel.concept_name cn
+						on cs.concept_id = cn.concept_id
+							where cn.locale='en' and cn.concept_name_type='FULLY_SPECIFIED'
+						 group by cs.concept_set
+							)as sc
+						on sc.concept_set = c.concept_id
+
+					/* set parents */
+					left join
+					(SELECT cs.concept_id, group_concat(CONCAT(CAST(cs.concept_set AS CHAR),' : ' ),cn.name separator ' | ' )
+						as set_parent
+						FROM omrs19_ciel.concept_set cs
+						left join omrs19_ciel.concept_name cn
+						on cs.concept_set = cn.concept_id
+						where cn.locale='en' and cn.concept_name_type='FULLY_SPECIFIED'
+						group by concept_id 
+						) as sp
+					 on sp.concept_id = c.concept_id
+
+						/* sibling */
+					left join
+					(select cs.concept_id, set_sibling from concept_set cs
+						left join
+						(SELECT group_concat(CONCAT(CAST(cs_i.concept_id as char),' : '),cn.name separator ' | ' ) as set_sibling, concept_set
+						FROM omrs19_ciel.concept_set cs_i
+						left join concept_name cn
+						on cs_i.concept_id = cn.concept_id
+						where
+						cn.locale='en' and
+						cn.concept_name_type='FULLY_SPECIFIED'
+						group by concept_set
+							) as si
+						on si.concept_set=cs.concept_set
+							) as sibs
+					on c.concept_id = sibs.concept_id
+				
+				where mcli.dict_id=5 and cn.locale='en' and cn.concept_name_type='FULLY_SPECIFIED' 
+				/*LIMIT 200*/ ;
+			">
+			<field column="full_id" name="full_id" />  
+            <field column="id" name="id" />            
+			<field column="uuid" name="uuid" />   
+			<field column="full_uuid" name="full_uuid" />   
+			<field column="name" name="name" /> 
+			<field column="pname" name="pname" /> 
+			<field column="description" name="description" />  
+			<field column="timestamp" name="timestamp"/>	
+			<field column="dict" name="dict" />   			
+			<field column="retired" name="retired" />  
+			<field column="class" name="class" /> 
+			<field column="datatype" name="datatype" />   				
+			<field column="answer" name="answer" />   					 
+			<field column="question" name="question" />   						
+        </entity>	
+    </document>	
+</dataConfig>
+
